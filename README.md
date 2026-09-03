@@ -91,7 +91,7 @@ cp Backend/.env.example Backend/.env
 At minimum, set:
 
 ```env
-DJANGO_SECRET_KEY=<generate one>
+SECRET_KEY=<generate one>
 FERNET_KEY=<generate one — see below>
 POSTGRES_DB=configsentinel
 POSTGRES_USER=configsentinel
@@ -129,7 +129,7 @@ docker compose exec django python manage.py createsuperuser
 ### 6. Open the app
 
 - Frontend: [http://127.0.0.1:5173](http://127.0.0.1:5173)
-- API: [http://127.0.0.1:8000//api/](http://127.0.0.1:8000/api/)
+- API: [http://127.0.0.1:8000/api/](http://127.0.0.1:8000/api/)
 - Django admin: [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/)
 
 Log in with the superuser account you just created, then add your first device under **Devices**.
