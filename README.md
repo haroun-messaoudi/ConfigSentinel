@@ -128,9 +128,9 @@ docker compose exec django python manage.py createsuperuser
 
 ### 6. Open the app
 
-- Frontend: [http://localhost:5173](http://localhost:5173)
-- API: [http://localhost:8000/api/](http://localhost:8000/api/)
-- Django admin: [http://localhost:8000/admin/](http://localhost:8000/admin/)
+- Frontend: [http://127.0.0.1:5173](http://127.0.0.1:5173)
+- API: [http://127.0.0.1:8000//api/](http://127.0.0.1:8000/api/)
+- Django admin: [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/)
 
 Log in with the superuser account you just created, then add your first device under **Devices**.
 
@@ -157,14 +157,6 @@ Log in with the superuser account you just created, then add your first device u
 
 ---
 
-## Known Limitations
-
-- No CI/CD pipeline yet
+## Known Limitation
 - Single detection-syntax family (Cisco IOS/IOS-XE, FRR) — no Juniper/brace-style support
-- Enable-mode credentials assume the same password as SSH login unless a distinct `enable_secret` is explicitly set per device
-
 ---
-
-## License
-
-<!-- e.g. MIT — add a LICENSE file if you want one -->
