@@ -4,7 +4,7 @@
 
 Network configuration drift monitoring for Cisco/FRR-style devices. Polls devices over SSH, diffs configuration changes block-by-block, and flags them against a configurable rule engine — so you find out about a risky ACL edit or a disabled routing protocol without having to read a full running-config yourself.
 
-![Change detail view](docs/screenshots/change-details.png)
+![Change detail view](docs/screenshots/change-detail.png)
 
 ---
 
