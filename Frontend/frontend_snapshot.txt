@@ -1,0 +1,220 @@
+===== FRONTEND TREE =====
+src/App.vue
+src/api/client.ts
+src/assets/styles/main.css
+src/components/common/BaseButton.vue
+src/components/common/BaseInput.vue
+src/components/common/ErrorAlert.vue
+src/features/alerts/components/AlertListView.vue
+src/features/auth/api.ts
+src/features/auth/components/LoginView.vue
+src/features/auth/stores/auth.store.ts
+src/features/auth/types/index.ts
+src/features/changes/components/ChangeListView.vue
+src/features/detection/components/DetectionProfileListView.vue
+src/features/devices/components/DeviceDetailView.vue
+src/features/devices/components/DeviceListView.vue
+src/layouts/DefaultLayout.vue
+src/main.ts
+src/router/index.ts
+src/types/index.ts
+src/utils/jwt.ts
+src/utils/validators.ts
+src/views/DashboardView.vue
+src/views/NotFoundView.vue
+src/views/UsersView.vue
+
+===== API =====
+
+===== AUTH STORE =====
+import { computed, ref } from 'vue'
+import { defineStore } from 'pinia'
+import { registerRefreshHandlers, setAccessToken } from '@/api/client'
+import { decodeJwtPayload } from '@/utils/jwt'
+import type { UserRole } from '@/types'
+import { authApi } from '../api'
+import type { LoginCredentials } from '../types'
+
+const REFRESH_TOKEN_KEY = 'configsentinel.refreshToken'
+
+interface AccessTokenPayload {
+  user_id: string
+  username: string
+  role: string | null
+}
+
+interface SessionUser {
+  id: string
+  username: string
+  role: UserRole | null
+}
+
+function normalizeRole(role: string | null): UserRole | null {
+  if (!role) return null
+  return role.toLowerCase() as UserRole
+}
+
+export const useAuthStore = defineStore('auth', () => {
+  const user = ref<SessionUser | null>(null)
+  const refreshToken = ref<string | null>(localStorage.getItem(REFRESH_TOKEN_KEY))
+  const isReady = ref(false)
+
+  const isAuthenticated = computed(() => user.value !== null)
+  const role = computed<UserRole | null>(() => user.value?.role ?? null)
+
+  function hasRole(...roles: UserRole[]) {
+    return role.value !== null && roles.includes(role.value)
+  }
+
+  async function login(credentials: LoginCredentials) {
+    const tokens = await authApi.login(credentials)
+    setSession(tokens.access, tokens.refresh)
+  }
+
+  function logout() {
+    user.value = null
+    refreshToken.value = null
+    localStorage.removeItem(REFRESH_TOKEN_KEY)
+    setAccessToken(null)
+  }
+
+  async function restoreSession() {
+    if (refreshToken.value) {
+      await refreshAccessToken()
+    }
+    isReady.value = true
+  }
+
+  async function refreshAccessToken(): Promise<string | null> {
+    if (!refreshToken.value) return null
+    try {
+      const { access } = await authApi.refresh(refreshToken.value)
+      applyAccessToken(access)
+      return access
+    } catch {
+      logout()
+      return null
+    }
+  }
+
+  function setSession(access: string, refresh: string) {
+    applyAccessToken(access)
+    refreshToken.value = refresh
+    localStorage.setItem(REFRESH_TOKEN_KEY, refresh)
+  }
+
+  function applyAccessToken(access: string) {
+    setAccessToken(access)
+    const payload = decodeJwtPayload<AccessTokenPayload>(access)
+    user.value = {
+      id: payload.user_id,
+      username: payload.username,
+      role: normalizeRole(payload.role),
+    }
+  }
+
+  registerRefreshHandlers(refreshAccessToken, logout)
+
+  return {
+    user,
+    isAuthenticated,
+    isReady,
+    role,
+    hasRole,
+    login,
+    logout,
+    restoreSession,
+  }
+})
+
+===== ROUTER =====
+import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/features/auth/stores/auth.store'
+import type { UserRole } from '@/types'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    requiresAuth?: boolean
+    roles?: UserRole[] // if omitted, any authenticated role can access
+  }
+}
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/features/auth/components/LoginView.vue'),
+    },
+    {
+      path: '/',
+      component: () => import('@/layouts/DefaultLayout.vue'),
+      meta: { requiresAuth: true },
+      children: [
+        {
+          path: '',
+          name: 'dashboard',
+          component: () => import('@/views/DashboardView.vue'),
+        },
+        {
+          path: 'devices',
+          name: 'devices',
+          component: () => import('@/features/devices/components/DeviceListView.vue'),
+        },
+        {
+          path: 'devices/:id',
+          name: 'device-detail',
+          component: () => import('@/features/devices/components/DeviceDetailView.vue'),
+          props: true,
+        },
+        {
+          path: 'changes',
+          name: 'changes',
+          component: () => import('@/features/changes/components/ChangeListView.vue'),
+        },
+        {
+          path: 'alerts',
+          name: 'alerts',
+          component: () => import('@/features/alerts/components/AlertListView.vue'),
+        },
+        {
+          path: 'detection-profiles',
+          name: 'detection-profiles',
+          component: () => import('@/features/detection/components/DetectionProfileListView.vue'),
+          meta: { roles: ['admin'] },
+        },
+        {
+          path: 'users',
+          name: 'users',
+          component: () => import('@/views/UsersView.vue'),
+          meta: { roles: ['admin'] },
+        },
+      ],
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/views/NotFoundView.vue'),
+    },
+  ],
+})
+
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  if (!auth.isReady) {
+    await auth.restoreSession()
+  }
+
+  if (to.meta.requiresAuth && !auth.isAuthenticated) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (to.meta.roles && !auth.hasRole(...to.meta.roles)) {
+    return { name: 'dashboard' }
+  }
+  if (to.name === 'login' && auth.isAuthenticated) {
+    return { name: 'dashboard' }
+  }
+})
+
+export default router

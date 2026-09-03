@@ -1,0 +1,17 @@
+=== Detection API ===
+No API file yet
+
+=== Detection Types ===
+None found
+
+=== DetectionProfileListView.vue ===
+<script setup lang="ts">
+// Placeholder — build out in the components pass.
+</script>
+
+<template>
+  <div>
+    <h2 class="text-xl font-semibold text-slate-800">Detection Profiles</h2>
+    <p class="text-sm text-slate-500 mt-1">Not implemented yet.</p>
+  </div>
+</template>

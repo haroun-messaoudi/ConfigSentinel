@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design tokens shared across the app — network-ops console style
+   (dark sidebar, card-based content, status color coding), in the
+   spirit of tools like Cisco DNA Center. Extend here, not per-component. */
+@theme {
+  /* Brand / primary — used for links, primary buttons, focus rings */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-500: #0073c6;
+  --color-brand-600: #005fa3;
+  --color-brand-700: #004a80;
+
+  /* Sidebar / chrome — light by default, swaps to dark navy in dark mode
+     (see .dark overrides below). */
+  --color-chrome-bg: #ffffff;
+  --color-chrome-bg-hover: #f1f5f9;
+  --color-chrome-bg-active: #eff6ff;
+  --color-chrome-border: #e2e8f0;
+  --color-chrome-text: #475569;
+  --color-chrome-text-strong: #0f172a;
+
+  /* Status — used consistently for severity/health across the whole app:
+     devices, alerts, config change risk, form validation state */
+  --color-status-critical: #d0021b;
+  --color-status-critical-bg: #fdecee;
+  --color-status-warning: #b7791f;
+  --color-status-warning-bg: #fdf6e3;
+  --color-status-healthy: #2e7d32;
+  --color-status-healthy-bg: #eaf6ea;
+  --color-status-info: #0073c6;
+  --color-status-info-bg: #e8f3fb;
+  --color-status-neutral: #64748b;
+  --color-status-neutral-bg: #f1f5f9;
+
+  /* Semantic surface/text/border tokens — the light-mode content area
+     (everything except the sidebar) is built on these instead of raw
+     slate/white, so dark mode is a token swap, not a per-component rewrite. */
+  --color-surface: #f8fafc;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #64748b;
+  --color-text-muted: #94a3b8;
+}
+
+.dark {
+  --color-brand-500: #3b9eda;
+  --color-brand-600: #63b3e6;
+  --color-brand-700: #8ecbf0;
+
+  --color-chrome-bg: #101a2b;
+  --color-chrome-bg-hover: #1e2f4a;
+  --color-chrome-bg-active: #1e2f4a;
+  --color-chrome-border: #1e2f4a;
+  --color-chrome-text: #cbd5e1;
+  --color-chrome-text-strong: #ffffff;
+
+  --color-status-critical: #f87171;
+  --color-status-critical-bg: #3a1518;
+  --color-status-warning: #f2b84b;
+  --color-status-warning-bg: #3a2c10;
+  --color-status-healthy: #4ade80;
+  --color-status-healthy-bg: #103a1a;
+  --color-status-info: #3b9eda;
+  --color-status-info-bg: #10263a;
+  --color-status-neutral: #94a3b8;
+  --color-status-neutral-bg: #1e293b;
+
+  --color-surface: #0b1220;
+  --color-surface-raised: #131c2e;
+  --color-surface-sunken: #1a2436;
+  --color-border: #263449;
+  --color-border-strong: #37475f;
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+}
+
+/* Page transition — subtle opacity fade only, no movement/scale. */
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.12s ease;
+}
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+}
