@@ -6,7 +6,7 @@ from django.utils import timezone
 from netmiko import NetmikoAuthenticationException, NetmikoTimeoutException
 from django.db import transaction
 
-from .collector import pull_config, diff_configs
+from .collector import pull_config, diff_configs,DeviceConnectionError
 from .risk import score_diff
 from .models import Device, Snapshot, ConfigChange, Alert
 
@@ -40,18 +40,8 @@ def pull_config_task(device_id):
         raw_text = pull_config(device)
         duration_ms = int((time.perf_counter() - start) * 1000)
 
-    except NetmikoAuthenticationException:
-        _mark_poll_failed(
-            device,
-            "Authentication failed — check username/password.",
-        )
-        return
-
-    except NetmikoTimeoutException:
-        _mark_poll_failed(
-            device,
-            "Connection timed out — check the IP, port, and reachability.",
-        )
+    except DeviceConnectionError as e:
+        _mark_poll_failed(device, str(e))
         return
 
     except Exception as exc:
