@@ -1,3 +1,5 @@
+import re
+
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -51,7 +53,12 @@ def verify_change_request_after_poll(sender, change_request_id, raw_config=None,
                 missing.append(f"section '{header}'")
                 continue
 
-            actual_lines = {_normalize_config_line(line) for line in actual_content.splitlines()[1:]}
+            actual_lines = set()
+            for line in actual_content.splitlines()[1:]:
+                normalized_line = _normalize_config_line(line)
+                if header.startswith("ip access-list "):
+                    normalized_line = re.sub(r"^\d+\s+", "", normalized_line)
+                actual_lines.add(normalized_line)
             for raw_line in expected_content.splitlines()[1:]:
                 command = _normalize_config_line(raw_line)
                 if not command or command in ignored_commands:

@@ -233,7 +233,7 @@ class ChangeRequestReadbackVerificationTests(TestCase):
             action_definition=self.action,
             device=self.device,
             requested_by=self.engineer,
-            params={},
+            params={"test_value": "readback"},
         )
 
     def test_matching_running_config_marks_request_successful(self):
@@ -249,6 +249,30 @@ class ChangeRequestReadbackVerificationTests(TestCase):
         request.refresh_from_db()
         self.assertEqual(request.status, "SUCCESS")
         self.assertIsNotNone(request.applied_at)
+        self.assertEqual(request.error_message, "")
+
+    def test_numbered_acl_entry_matches_requested_command(self):
+        self.action.templates.filter(device_type="cisco_xe").update(
+            template_text=(
+                "ip access-list extended 100\n"
+                " permit ip 192.168.2.0 0.0.0.255 any"
+            )
+        )
+        request = self.create_request()
+
+        from devices.signals import change_request_poll_result
+        change_request_poll_result.send(
+            sender=self.__class__,
+            change_request_id=request.id,
+            raw_config=(
+                "ip access-list extended 100\n"
+                " 20 permit ip 192.168.2.0 0.0.0.255 any\n"
+                "!\n"
+            ),
+        )
+
+        request.refresh_from_db()
+        self.assertEqual(request.status, "SUCCESS")
         self.assertEqual(request.error_message, "")
 
     def test_missing_requested_config_is_saved_as_verification_failure(self):
