@@ -38,7 +38,7 @@ Validated against an FRRouting lab (Containerlab) and a real Cisco Catalyst 8000
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/dashboard.png" alt="Dashboard"/></td>
+    <td><img src="docs/screenshots/dashboard.jpg" alt="Dashboard"/></td>
     <td><img src="docs/screenshots/devices-list.png" alt="Devices list"/></td>
   </tr>
   <tr>
