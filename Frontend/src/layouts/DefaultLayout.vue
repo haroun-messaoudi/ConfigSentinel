@@ -3,7 +3,8 @@ import { computed } from 'vue'
 import { useAuthStore } from '@/features/auth/stores/auth.store'
 import { useNotificationCounts } from '@/composables/useNotificationCounts'
 import UserMenu from '@/components/layout/UserMenu.vue'
-import { LayoutDashboard, Server, GitCompareArrows, Bell, ShieldCheck, Users } from 'lucide-vue-next'
+import NotificationToast from '@/components/common/NotificationToast.vue'
+import { LayoutDashboard, Server, GitCompareArrows, Bell, ShieldCheck, Users, Wrench, Activity } from 'lucide-vue-next'
 
 const auth = useAuthStore()
 const { undeliveredAlerts, flaggedChanges } = useNotificationCounts()
@@ -12,17 +13,23 @@ function badgeLabel(n: number): string {
   return n > 9 ? '+9' : String(n)
 }
 
-const navItems = computed(() => [
-  { to: { name: 'devices' }, label: 'Devices', icon: Server, badge: 0 },
-  { to: { name: 'changes' }, label: 'Changes', icon: GitCompareArrows, badge: flaggedChanges.value },
-  { to: { name: 'alerts' }, label: 'Alerts', icon: Bell, badge: undeliveredAlerts.value },
-])
+const navItems = computed(() => {
+  const items = [
+    { to: { name: 'devices' }, label: 'Devices', icon: Server, badge: 0 },
+    { to: { name: 'changes' }, label: 'Changes', icon: GitCompareArrows, badge: flaggedChanges.value },
+    { to: { name: 'alerts' }, label: 'Alerts', icon: Bell, badge: undeliveredAlerts.value },
+  ]
+  return auth.hasRole('operator') ? items.filter((item) => item.label !== 'Alerts') : items
+})
 </script>
 
 <template>
   <div class="min-h-screen flex bg-surface">
+    <NotificationToast />
     <aside class="w-60 shrink-0 bg-chrome-bg border-r border-chrome-border text-chrome-text p-4 flex flex-col gap-1">
       <h1 class="text-lg font-semibold text-chrome-text-strong mb-6 px-2">ConfigSentinel</h1>
+
+      <p v-if="auth.hasRole('operator')" class="mb-2 px-3 text-[10px] font-semibold uppercase text-chrome-text/70">Operator workspace</p>
 
       <nav class="flex flex-col gap-0.5">
         <RouterLink
@@ -31,7 +38,7 @@ const navItems = computed(() => [
           exact-active-class="bg-chrome-bg-active text-brand-600 font-medium"
         >
           <LayoutDashboard class="w-4 h-4 shrink-0" />
-          Dashboard
+          {{ auth.hasRole('operator') ? 'Overview' : 'Dashboard' }}
         </RouterLink>
 
         <RouterLink
@@ -53,6 +60,17 @@ const navItems = computed(() => [
           </span>
         </RouterLink>
 
+        <!-- Admin Only Governance & User Management Links -->
+        <RouterLink
+          v-if="auth.hasRole('admin')"
+          :to="{ name: 'actions-governance' }"
+          class="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors hover:bg-chrome-bg-hover hover:text-chrome-text-strong"
+          active-class="bg-chrome-bg-active text-brand-600 font-medium"
+        >
+          <Wrench class="w-4 h-4 shrink-0" />
+          Action Governance
+        </RouterLink>
+
         <RouterLink
           v-if="auth.hasRole('admin')"
           :to="{ name: 'detection-profiles' }"
@@ -61,6 +79,24 @@ const navItems = computed(() => [
         >
           <ShieldCheck class="w-4 h-4 shrink-0" />
           Detection Profiles
+        </RouterLink>
+        <RouterLink
+          v-if="auth.hasRole('admin', 'operator')"
+          :to="{ name: 'my-actions' }"
+          class="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors hover:bg-chrome-bg-hover hover:text-chrome-text-strong"
+          active-class="bg-chrome-bg-active text-brand-600 font-medium"
+        >
+          <Wrench class="w-4 h-4 shrink-0" />
+          {{ auth.hasRole('operator') ? 'Submit Change' : 'Run Actions' }}
+        </RouterLink>
+        <RouterLink
+          v-if="auth.hasRole('operator')"
+          :to="{ name: 'my-activity' }"
+          class="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors hover:bg-chrome-bg-hover hover:text-chrome-text-strong"
+          active-class="bg-chrome-bg-active text-brand-600 font-medium"
+        >
+          <Activity class="w-4 h-4 shrink-0" />
+          My Change Activity
         </RouterLink>
         <RouterLink
           v-if="auth.hasRole('admin')"

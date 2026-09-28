@@ -1,5 +1,6 @@
 # users/views.py
 from django.conf import settings
+from django.contrib.auth.models import update_last_login
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -57,6 +58,8 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        update_last_login(None, serializer.user)
+
         access = serializer.validated_data["access"]
         refresh = serializer.validated_data["refresh"]
 

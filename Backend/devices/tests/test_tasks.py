@@ -81,6 +81,7 @@ class PullConfigTaskTests(TestCase):
         self.assertEqual(self.device.last_poll_status, "OK")
         self.assertEqual(self.device.last_poll_error, "")
         self.assertIsNotNone(self.device.last_polled_at)
+        self.assertIsNotNone(self.device.last_poll_attempted_at)
 
 from netmiko import NetmikoAuthenticationException, NetmikoTimeoutException
 
@@ -119,7 +120,22 @@ class PullConfigTaskFailureTests(TestCase):
         self.device.refresh_from_db()
         self.assertEqual(self.device.last_poll_status, "ERROR")
         self.assertIn("timed out", self.device.last_poll_error)
+        self.assertIsNone(self.device.last_polled_at)
+        self.assertIsNotNone(self.device.last_poll_attempted_at)
         self.assertEqual(Snapshot.objects.filter(device=self.device).count(), 0)
+
+    @patch("devices.tasks.pull_config")
+    def test_failed_poll_preserves_last_successful_poll_time(self, mock_pull_config):
+        successful_poll_at = timezone.now()
+        self.device.last_polled_at = successful_poll_at
+        self.device.save(update_fields=["last_polled_at"])
+        mock_pull_config.side_effect = NetmikoTimeoutException("no response")
+
+        pull_config_task(self.device.id)
+
+        self.device.refresh_from_db()
+        self.assertEqual(self.device.last_polled_at, successful_poll_at)
+        self.assertGreater(self.device.last_poll_attempted_at, successful_poll_at)
 
     @patch("devices.tasks.pull_config")
     def test_unexpected_exception_is_caught_not_raised(self, mock_pull_config):
@@ -181,7 +197,7 @@ class PollDueDevicesTests(TestCase):
 
     @patch("devices.tasks.pull_config_task.delay")
     def test_active_due_device_is_queued(self, mock_delay):
-        # last_polled_at is None — brand new device, so it's immediately "due"
+        # No prior attempt — a brand new device is immediately due.
         poll_due_devices()
 
         queued_ids = [call.args[0] for call in mock_delay.call_args_list]
@@ -189,8 +205,8 @@ class PollDueDevicesTests(TestCase):
 
     @patch("devices.tasks.pull_config_task.delay")
     def test_active_device_not_yet_due_is_skipped(self, mock_delay):
-        self.active_device.last_polled_at = timezone.now()  # just polled seconds ago
-        self.active_device.save()
+        self.active_device.last_poll_attempted_at = timezone.now()
+        self.active_device.save(update_fields=["last_poll_attempted_at"])
 
         poll_due_devices()
 

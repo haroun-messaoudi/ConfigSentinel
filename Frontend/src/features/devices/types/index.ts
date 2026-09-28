@@ -20,6 +20,7 @@ export interface Device {
   is_active: boolean
   last_poll_status: PollStatus
   last_poll_error: string | null
+  last_poll_attempted_at: string | null
   last_polled_at: string | null
   consecutive_failures: number
 }

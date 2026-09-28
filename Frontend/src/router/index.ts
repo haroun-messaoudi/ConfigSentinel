@@ -49,6 +49,7 @@ const router = createRouter({
           path: 'alerts',
           name: 'alerts',
           component: () => import('@/features/alerts/components/AlertListView.vue'),
+          meta: { roles: ['admin', 'viewer'] },
         },
         {
           path: 'detection-profiles',
@@ -78,6 +79,24 @@ const router = createRouter({
           name: 'device-snapshots',
           component: () => import('@/features/devices/components/DeviceSnapshotsView.vue'),
           props: true,
+        },
+        {
+          path: 'actions-governance',
+          name: 'actions-governance',
+          component: () => import('@/features/actions/components/ActionAdminView.vue'),
+          meta: { roles: ['admin'] },
+        },
+        {
+          path: 'my-actions',
+          name: 'my-actions',
+          component: () => import('@/features/actions/components/OperatorActionsView.vue'),
+          meta: { roles: ['admin', 'operator'] },
+        },
+        {
+          path: 'my-activity',
+          name: 'my-activity',
+          component: () => import('@/features/actions/components/OperatorActivityView.vue'),
+          meta: { roles: ['operator'] },
         },
       ],
     },

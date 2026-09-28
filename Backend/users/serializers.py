@@ -28,7 +28,7 @@ class UserSerializer(serializers.ModelSerializer):
     )
     password = serializers.CharField(
         write_only=True,
-        required=True,
+        required=False,  # Set to False so updates don't require passing a password
         validators=[validate_password],
     )
 
@@ -41,19 +41,20 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ["last_login"]
 
     def create(self, validated_data):
-        password = validated_data.pop("password")
+        password = validated_data.pop("password", None)
+        if not password:
+            raise serializers.ValidationError({"password": "This field is required when creating a user."})
         user = User(**validated_data)
         user.set_password(password)
         user.save()
         return user
 
     def update(self, instance, validated_data):
-        validated_data.pop("password", None)  # admin edits never touch the password — owners reset their own via change_password
+        validated_data.pop("password", None)  # Admin updates never touch the password field
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
         return instance
-
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod

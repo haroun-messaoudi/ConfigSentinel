@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/features/auth/stores/auth.store'
 import { devicesApi } from '../api/devices.api'
 import { snapshotsApi } from '@/features/snapshots/api/snapshots.api'
+import { getOperatorDeviceIds } from '@/utils/operatorScope'
 import type { Device } from '../types'
 import type { Snapshot } from '@/features/snapshots/types'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
@@ -29,6 +30,13 @@ async function load() {
   isLoading.value = true
   loadError.value = null
   try {
+    if (auth.hasRole('operator')) {
+      const deviceIds = await getOperatorDeviceIds()
+      if (!deviceIds.has(Number(props.id))) {
+        loadError.value = 'This device is not assigned to you.'
+        return
+      }
+    }
     const [dev, snaps] = await Promise.all([devicesApi.get(props.id), snapshotsApi.listForDevice(props.id)])
     device.value = dev
     snapshots.value = snaps
@@ -80,7 +88,7 @@ async function setAsBaseline(snapshot: Snapshot) {
       </p>
     </div>
     <p v-if="device?.last_polled_at" class="text-xs text-text-muted mb-4">
-      Last polled {{ new Date(device.last_polled_at).toLocaleString() }}
+      Last successful config capture {{ new Date(device.last_polled_at).toLocaleString() }}
       <span v-if="device.last_poll_status === 'OK'">— no changes recorded if this is more recent than the newest snapshot below.</span>
     </p>
     <ErrorAlert v-if="loadError" :message="loadError" class="mb-4" />

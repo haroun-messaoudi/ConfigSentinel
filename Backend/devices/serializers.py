@@ -52,11 +52,11 @@ class DeviceSerializer(serializers.ModelSerializer):
             "id", "name", "hostname", "management_ip", "port", "device_type",
             "username", "password", "enable_secret", "poll_interval_minutes",
             "detection_profile", "is_active",
-            "last_poll_status", "last_poll_error", "last_polled_at",
+            "last_poll_status", "last_poll_error", "last_poll_attempted_at", "last_polled_at",
             "consecutive_failures"
         ]
         read_only_fields = [
-            "last_poll_status", "last_poll_error", "last_polled_at", "consecutive_failures"
+            "last_poll_status", "last_poll_error", "last_poll_attempted_at", "last_polled_at", "consecutive_failures"
         ]
 
     def validate_name(self, value):
@@ -131,6 +131,9 @@ class ConfigChangeSerializer(serializers.ModelSerializer):
     severity_name = serializers.CharField(source="severity_class.name", read_only=True, default=None)
     matched_concept_names = serializers.SerializerMethodField()
     acknowledged_by_username = serializers.CharField(source="acknowledged_by.username", read_only=True, default=None)
+    
+    # New fields for attribution
+    changed_by_username = serializers.SerializerMethodField()
 
     class Meta:
         model = ConfigChange
@@ -138,17 +141,23 @@ class ConfigChangeSerializer(serializers.ModelSerializer):
             "id", "device", "device_name", "old_snapshot", "new_snapshot",
             "diff_text", "severity_class", "severity_name",
             "matched_concepts", "matched_concept_names",
+            "change_request", "changed_by_username",  # Added change_request & changed_by_username
             "detected_at", "status", "acknowledged_at",
             "acknowledged_by", "acknowledged_by_username",
         ]
         read_only_fields = [
             "id", "device", "old_snapshot", "new_snapshot", "diff_text",
-            "severity_class", "matched_concepts", "detected_at", "acknowledged_at",
+            "severity_class", "matched_concepts", "change_request", "detected_at", "acknowledged_at",
             "acknowledged_by",
         ]
 
     def get_matched_concept_names(self, obj):
         return [c.name for c in obj.matched_concepts.all()]
+
+    def get_changed_by_username(self, obj):
+        if obj.change_request and obj.change_request.requested_by:
+            return obj.change_request.requested_by.username
+        return None  # Out-of-band change (direct CLI edit or routine automated poll)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

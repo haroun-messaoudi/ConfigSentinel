@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { devicesApi } from '../api/devices.api'
 import type { Device } from '../types'
+import { useAppNotifications } from '@/composables/useAppNotifications'
 
 const POLL_INTERVAL_MS = 2000
 const MAX_POLL_ATTEMPTS = 30 // ~60s before giving up and telling the user
@@ -8,6 +9,7 @@ const MAX_POLL_ATTEMPTS = 30 // ~60s before giving up and telling the user
 export function useCheckNow() {
   const checkingIds = ref<Set<number>>(new Set())
   const checkErrors = ref<Record<number, string>>({})
+  const { notify } = useAppNotifications()
 
   async function checkNow(device: Device, onUpdate: (updated: Device) => void) {
     if (checkingIds.value.has(device.id)) return // already in flight — blocks spamming
@@ -15,7 +17,7 @@ export function useCheckNow() {
     delete checkErrors.value[device.id]
     checkingIds.value.add(device.id)
 
-    const beforeTimestamp = device.last_polled_at
+    const beforeAttempt = device.last_poll_attempted_at
 
     try {
       await devicesApi.checkNow(device.id)
@@ -31,9 +33,20 @@ export function useCheckNow() {
       attempts++
       try {
         const updated = await devicesApi.get(device.id)
-        if (updated.last_polled_at && updated.last_polled_at !== beforeTimestamp) {
+        if (updated.last_poll_attempted_at && updated.last_poll_attempted_at !== beforeAttempt) {
           onUpdate(updated)
           checkingIds.value.delete(device.id)
+          if (updated.last_poll_status === 'ERROR') {
+            const message = updated.last_poll_error || 'The device check failed.'
+            checkErrors.value[device.id] = message
+            notify({
+              tone: 'error',
+              title: 'Device check failed',
+              message: `${device.name}: ${message}`,
+            })
+          } else {
+            delete checkErrors.value[device.id]
+          }
           return
         }
       } catch {
@@ -42,8 +55,14 @@ export function useCheckNow() {
       }
 
       if (attempts >= MAX_POLL_ATTEMPTS) {
-        checkErrors.value[device.id] = 'Check is taking longer than expected. Refresh to see the latest status.'
+        const message = 'No result was received after 60 seconds. The device may be unreachable, or the backend check worker may not be responding.'
+        checkErrors.value[device.id] = message
         checkingIds.value.delete(device.id)
+        notify({
+          tone: 'error',
+          title: 'Device check timed out',
+          message: `${device.name}: ${message}`,
+        })
         return
       }
 

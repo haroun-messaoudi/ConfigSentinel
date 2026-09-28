@@ -66,7 +66,7 @@ class DeviceAdmin(admin.ModelAdmin):
     ]
     list_filter = ["is_active", "device_type", "last_poll_status", "detection_profile"]
     search_fields = ["name", "hostname", "management_ip"]
-    readonly_fields = ["last_poll_status", "last_poll_error", "last_polled_at", "last_poll_duration_ms"]
+    readonly_fields = ["last_poll_status", "last_poll_error", "last_poll_attempted_at", "last_polled_at", "last_poll_duration_ms"]
     actions = ["pause_devices", "resume_devices"]
 
     def pause_devices(self, request, queryset):

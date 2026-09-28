@@ -26,6 +26,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path("api/", include("devices.urls")),
     path("api/", include("users.urls")),
+    path("api/", include("actions.urls")), 
     path("api/token/", CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", CookieTokenRefreshView.as_view(), name="token_refresh"),
     path("api/logout/", LogoutView.as_view(), name="logout"),

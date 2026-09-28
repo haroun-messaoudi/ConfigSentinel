@@ -69,6 +69,7 @@ class Device(models.Model):
 
     last_poll_status = models.CharField(max_length=10, choices=POLL_STATUS_CHOICES, null=True, blank=True)
     last_poll_error = models.TextField(blank=True, default="")
+    last_poll_attempted_at = models.DateTimeField(null=True, blank=True)
     last_polled_at = models.DateTimeField(null=True, blank=True)
     last_poll_duration_ms = models.PositiveIntegerField(null=True, blank=True)
 
@@ -138,6 +139,13 @@ class ConfigChange(models.Model):
     acknowledged_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,
         on_delete=models.SET_NULL, related_name="acknowledged_changes",
+    )
+    change_request = models.ForeignKey(
+        "actions.ChangeRequest",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="resulting_config_changes",
     )
     class Meta:
         ordering = ["-detected_at"]

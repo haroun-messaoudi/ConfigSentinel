@@ -5,6 +5,9 @@ import { useAuthStore } from '@/features/auth/stores/auth.store'
 import { devicesApi } from '../api/devices.api'
 import { changesApi } from '@/features/changes/api/changes.api'
 import { snapshotsApi } from '@/features/snapshots/api/snapshots.api'
+import { actionsApi } from '@/features/actions/api/actions.api'
+import type { ChangeRequestItem } from '@/features/actions/types'
+import { getOperatorDeviceIds } from '@/utils/operatorScope'
 import { useCheckNow } from '../composables/useCheckNow'
 import type { Device } from '../types'
 import type { ConfigChange, ChangeStatus } from '@/features/changes/types'
@@ -24,6 +27,7 @@ import {
   CheckCircle2,
   Info,
   Star,
+  ArrowRight,
 } from 'lucide-vue-next'
 
 const props = defineProps<{ id: string }>()
@@ -48,6 +52,11 @@ const changesError = ref<string | null>(null)
 const recentSnapshots = ref<Snapshot[]>([])
 const snapshotsLoading = ref(true)
 const snapshotsError = ref<string | null>(null)
+const ownRequests = ref<ChangeRequestItem[]>([])
+const requestHistoryError = ref<string | null>(null)
+
+const successfulChangesByMe = computed(() => ownRequests.value.filter((request) => request.status === 'SUCCESS').length)
+const latestSuccessfulChange = computed(() => ownRequests.value.find((request) => request.status === 'SUCCESS'))
 
 const statusBadge = computed(() => {
   if (!device.value) return { text: '', class: '' }
@@ -61,6 +70,13 @@ async function loadDevice() {
   isLoading.value = true
   loadError.value = null
   try {
+    if (auth.hasRole('operator')) {
+      const deviceIds = await getOperatorDeviceIds()
+      if (!deviceIds.has(Number(props.id))) {
+        loadError.value = 'This device is not assigned to you.'
+        return
+      }
+    }
     device.value = await devicesApi.get(props.id)
   } catch {
     loadError.value = 'Could not load this device.'
@@ -93,10 +109,23 @@ async function loadRecentSnapshots() {
   }
 }
 
-onMounted(() => {
-  loadDevice()
-  loadRecentChanges()
-  loadRecentSnapshots()
+async function loadOwnChangeHistory() {
+  requestHistoryError.value = null
+  try {
+    const requests = await actionsApi.listChangeRequests()
+    ownRequests.value = requests
+      .filter((request) => request.device === Number(props.id))
+      .sort((a, b) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime())
+  } catch {
+    requestHistoryError.value = 'Could not load your execution history for this device.'
+  }
+}
+
+onMounted(async () => {
+  await loadDevice()
+  if (!device.value) return
+  const requests = auth.hasRole('operator') ? [loadOwnChangeHistory()] : []
+  await Promise.all([loadRecentChanges(), loadRecentSnapshots(), ...requests])
 })
 
 async function runAction(action: 'pause' | 'resume') {
@@ -154,9 +183,12 @@ function statusMeta(status: ChangeStatus) {
       ← Back to Devices
     </button>
 
-    <ErrorAlert v-if="loadError" :message="loadError" class="mb-4" />
-
     <div v-if="isLoading" class="text-sm text-text-secondary">Loading…</div>
+
+    <div v-else-if="loadError" class="max-w-xl border-y border-border py-6">
+      <ErrorAlert :message="loadError" class="mb-4" />
+      <BaseButton variant="secondary" @click="router.push({ name: 'devices' })">Back to your devices</BaseButton>
+    </div>
 
     <template v-else-if="device">
       <div class="bg-surface-raised border border-border rounded-lg shadow-sm p-6">
@@ -180,9 +212,15 @@ function statusMeta(status: ChangeStatus) {
             <dd class="text-text-primary">{{ device.poll_interval_minutes }} min</dd>
           </div>
           <div>
-            <dt class="text-text-secondary">Last Polled</dt>
+            <dt class="text-text-secondary">Last Successful Config Capture</dt>
             <dd class="text-text-primary">
               {{ device.last_polled_at ? new Date(device.last_polled_at).toLocaleString() : 'Never' }}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-text-secondary">Last Poll Attempt</dt>
+            <dd class="text-text-primary">
+              {{ device.last_poll_attempted_at ? new Date(device.last_poll_attempted_at).toLocaleString() : 'Never' }}
             </dd>
           </div>
           <div>
@@ -209,7 +247,7 @@ function statusMeta(status: ChangeStatus) {
             {{ checkingIds.has(device.id) ? 'Checking…' : 'Check Now' }}
           </BaseButton>
           <BaseButton
-            v-if="auth.hasRole('admin', 'operator')"
+            v-if="auth.hasRole('admin')"
             variant="secondary"
             :disabled="isActing"
             @click="runAction(device.is_active ? 'pause' : 'resume')"
@@ -221,7 +259,7 @@ function statusMeta(status: ChangeStatus) {
             <History class="w-4 h-4" />
             View Snapshots
           </BaseButton>
-          <BaseButton v-if="auth.hasRole('admin', 'operator')" @click="showEditModal = true">
+          <BaseButton v-if="auth.hasRole('admin')" @click="showEditModal = true">
             <Pencil class="w-4 h-4" />
             Edit
           </BaseButton>
@@ -230,6 +268,20 @@ function statusMeta(status: ChangeStatus) {
             Delete
           </BaseButton>
         </div>
+      </div>
+
+      <div v-if="auth.hasRole('operator')" class="mt-4 flex flex-wrap items-center justify-between gap-4 border-y border-border bg-surface-sunken px-4 py-3">
+        <div>
+          <p class="text-xs font-medium text-text-secondary">Successful changes made by you on this device</p>
+          <p class="mt-0.5 text-xl font-semibold tabular-nums text-status-healthy">{{ successfulChangesByMe }}</p>
+          <p class="text-[11px] text-text-secondary">
+            {{ latestSuccessfulChange ? `Most recent: ${new Date(latestSuccessfulChange.applied_at || latestSuccessfulChange.requested_at).toLocaleString()}` : 'No successful executions recorded yet' }}
+          </p>
+          <p v-if="requestHistoryError" class="mt-1 text-xs text-status-critical">{{ requestHistoryError }}</p>
+        </div>
+        <RouterLink :to="{ name: 'my-activity', query: { device: device.id } }" class="text-xs font-medium text-brand-600 hover:text-brand-700">
+          View execution history <ArrowRight class="inline h-3.5 w-3.5" />
+        </RouterLink>
       </div>
 
       <div v-if="showDeleteConfirm" class="mt-4 bg-surface-raised border border-status-critical/30 rounded-lg p-4">

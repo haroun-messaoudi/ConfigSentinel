@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -57,10 +60,45 @@ class DevicePermissionTests(TestCase):
 
     # --- Operator ---
 
-    def test_operator_can_pause_device(self):
+    def test_operator_cannot_pause_device(self):
         client = self.auth_client(self.operator)
         response = client.post(f"/api/devices/{self.device.id}/pause/")
+        self.assertEqual(response.status_code, 403)
+
+
+class LastLoginTrackingTests(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(username="login-tracking", password="correct-password")
+
+    def test_successful_token_login_updates_last_login(self):
+        previous_login = timezone.now() - timedelta(days=1)
+        self.user.last_login = previous_login
+        self.user.save(update_fields=["last_login"])
+
+        response = self.client.post("/api/token/", {
+            "username": self.user.username,
+            "password": "correct-password",
+        }, format="json")
+
         self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertGreater(self.user.last_login, previous_login)
+
+    def test_failed_token_login_does_not_update_last_login(self):
+        previous_login = timezone.now() - timedelta(days=1)
+        self.user.last_login = previous_login
+        self.user.save(update_fields=["last_login"])
+
+        response = self.client.post("/api/token/", {
+            "username": self.user.username,
+            "password": "wrong-password",
+        }, format="json")
+
+        self.assertEqual(response.status_code, 401)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.last_login, previous_login)
 
     def test_operator_cannot_create_device(self):
         client = self.auth_client(self.operator)

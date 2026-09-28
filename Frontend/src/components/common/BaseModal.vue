@@ -1,8 +1,9 @@
 <script setup lang="ts">
-defineProps<{
+const props = withDefaults(defineProps<{
   open: boolean
   title: string
-}>()
+  closeable?: boolean
+}>(), { closeable: true })
 
 const emit = defineEmits<{ close: [] }>()
 </script>
@@ -10,7 +11,7 @@ const emit = defineEmits<{ close: [] }>()
 <template>
   <Teleport to="body">
     <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div class="absolute inset-0 bg-slate-950/60" @click="emit('close')" />
+      <div class="absolute inset-0 bg-slate-950/60" @click="props.closeable && emit('close')" />
       <div
         class="relative bg-surface-raised rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
         role="dialog"
@@ -18,7 +19,7 @@ const emit = defineEmits<{ close: [] }>()
       >
         <div class="flex items-center justify-between border-b border-border px-5 py-4">
           <h3 class="text-lg font-semibold text-text-primary">{{ title }}</h3>
-          <button type="button" class="text-text-muted hover:text-text-primary" aria-label="Close" @click="emit('close')">
+          <button v-if="props.closeable" type="button" class="text-text-muted hover:text-text-primary" aria-label="Close" @click="emit('close')">
             <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
               <path
                 fill-rule="evenodd"

@@ -3,6 +3,9 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/features/auth/stores/auth.store'
 import { changesApi } from '../api/changes.api'
+import { actionsApi } from '@/features/actions/api/actions.api'
+import type { ChangeRequestItem } from '@/features/actions/types'
+import { getOperatorDeviceIds, listChangesForDevices } from '@/utils/operatorScope'
 import { devicesApi } from '@/features/devices/api/devices.api'
 import { trackedConceptsApi, severityClassesApi } from '@/features/detection/api/detection.api'
 import { useNotificationCounts } from '@/composables/useNotificationCounts'
@@ -11,7 +14,7 @@ import type { TrackedConcept, SeverityClass } from '@/features/detection/types'
 import type { Device } from '@/features/devices/types'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
-import { ShieldAlert, CheckCircle2, Info, CheckCheck, ChevronDown, Server } from 'lucide-vue-next'
+import { ShieldAlert, CheckCircle2, Info, CheckCheck, ChevronDown, Server, User } from 'lucide-vue-next'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -19,6 +22,7 @@ const auth = useAuthStore()
 const { refreshCounts } = useNotificationCounts()
 
 const change = ref<ConfigChange | null>(null)
+const requestTrace = ref<ChangeRequestItem | null>(null)
 const isLoading = ref(true)
 const loadError = ref<string | null>(null)
 const ackError = ref<string | null>(null)
@@ -39,9 +43,24 @@ async function load() {
   isLoading.value = true
   loadError.value = null
   try {
-    change.value = await changesApi.get(props.id)
+    let loadedChange
+    if (auth.hasRole('operator')) {
+      const deviceIds = await getOperatorDeviceIds()
+      const scopedChanges = await listChangesForDevices(deviceIds)
+      loadedChange = scopedChanges.find((item) => item.id === Number(props.id))
+      if (!loadedChange) {
+        loadError.value = 'This change is not on one of your assigned devices.'
+        return
+      }
+    } else {
+      loadedChange = await changesApi.get(props.id)
+    }
+    change.value = loadedChange
     if (change.value) {
       devicesApi.get(change.value.device).then((d) => (device.value = d)).catch(() => {})
+      if (auth.hasRole('admin') && change.value.change_request) {
+        requestTrace.value = await actionsApi.getChangeRequest(change.value.change_request).catch(() => null)
+      }
     }
   } catch {
     loadError.value = 'Could not load this change.'
@@ -155,7 +174,6 @@ const sectionConcepts = computed(() => {
       if (!c.pattern) return false
       try {
         const regex = new RegExp(c.pattern, 'i')
-        // Test against each line individually so ^ and $ work per line!
         return section.lines.some((line) => regex.test(line))
       } catch {
         return false
@@ -200,7 +218,6 @@ async function scrollToConcept(concept: { pattern: string | null }) {
   if (!concept.pattern) return
 
   let regex: RegExp
-
   try {
     regex = new RegExp(concept.pattern, 'i')
   } catch {
@@ -215,20 +232,13 @@ async function scrollToConcept(concept: { pattern: string | null }) {
   )
 
   if (!section) return
-
   collapsedSections.value.delete(section.id)
-
   await nextTick()
 
   const el = sectionRefs.value[section.id]
-
   if (!el) return
 
-  el.scrollIntoView({
-    behavior: 'smooth',
-    block: 'center',
-  })
-
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   highlightedSectionId.value = section.id
 
   window.setTimeout(() => {
@@ -250,7 +260,7 @@ async function scrollToConcept(concept: { pattern: string | null }) {
 
     <template v-else-if="change">
       <div class="flex flex-col lg:flex-row gap-6 items-start">
-        <!-- Diff — main column with internal scrolling -->
+        <!-- Diff main column -->
         <div class="flex-1 min-w-0 w-full bg-surface-raised border border-border rounded-lg shadow-sm overflow-hidden flex flex-col lg:max-h-[calc(100vh-140px)]">
           <div class="px-4 py-3 border-b border-border flex items-center justify-between shrink-0 bg-surface-raised">
             <h3 class="text-sm font-medium text-text-secondary">Diff</h3>
@@ -323,6 +333,7 @@ async function scrollToConcept(concept: { pattern: string | null }) {
                 <dt class="text-text-secondary">Detected</dt>
                 <dd class="text-text-primary">{{ new Date(change.detected_at).toLocaleString() }}</dd>
               </div>
+
               <div>
                 <dt class="text-text-secondary">Status</dt>
                 <dd>
@@ -332,19 +343,78 @@ async function scrollToConcept(concept: { pattern: string | null }) {
                   </span>
                 </dd>
               </div>
+
+              <!-- Who caused this change: a tracked ChangeRequest, or null for an
+                   out-of-band edit (direct CLI) / routine automated poll. -->
+              <div>
+                <dt class="text-text-secondary">Triggered By</dt>
+                <dd class="text-text-primary mt-0.5 flex items-center gap-1.5">
+                  <User class="w-3.5 h-3.5 text-brand-500" />
+                  <span>{{ change.changed_by_username || 'No user recorded — automated poll or out-of-band change' }}</span>
+                </dd>
+              </div>
+
+              <!-- Displays who acknowledged the change -->
               <div v-if="change.status === 'ACKNOWLEDGED'">
-                <dt class="text-text-secondary">Acknowledged</dt>
-                <dd class="text-text-primary">
+                <dt class="text-text-secondary">Reviewed / Acknowledged By</dt>
+                <dd class="text-text-primary mt-0.5 flex items-center gap-1.5">
+                  <User class="w-3.5 h-3.5 text-status-healthy" />
+                  <span>{{ change.acknowledged_by_username || 'Admin / Operator' }}</span>
+                </dd>
+                <dd class="text-xs text-text-secondary mt-0.5">
                   {{ change.acknowledged_at ? new Date(change.acknowledged_at).toLocaleString() : '—' }}
-                  <span v-if="change.acknowledged_by_username"> by {{ change.acknowledged_by_username }}</span>
                 </dd>
               </div>
             </dl>
 
+            <section v-if="auth.hasRole('admin') && change.change_request" class="mt-5 border-t border-border pt-4">
+              <div class="mb-3 flex items-center justify-between">
+                <h3 class="text-xs font-semibold uppercase text-text-secondary">Execution trace</h3>
+                <span class="font-mono text-[10px] text-text-muted">Request #{{ change.change_request }}</span>
+              </div>
+              <p v-if="!requestTrace" class="text-xs text-text-secondary">Execution request details are unavailable.</p>
+              <template v-else>
+                <dl class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                  <div>
+                    <dt class="text-text-secondary">Action</dt>
+                    <dd class="mt-0.5 font-medium text-text-primary">{{ requestTrace.action_name }}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-text-secondary">Requested by</dt>
+                    <dd class="mt-0.5 font-medium text-text-primary">{{ requestTrace.requested_by_username }}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-text-secondary">Submitted</dt>
+                    <dd class="mt-0.5 text-text-primary">{{ new Date(requestTrace.requested_at).toLocaleString() }}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-text-secondary">Execution result</dt>
+                    <dd class="mt-0.5 font-medium" :class="requestTrace.status === 'SUCCESS' ? 'text-status-healthy' : requestTrace.status === 'FAILED' ? 'text-status-critical' : 'text-status-warning'">
+                      {{ requestTrace.status === 'SUCCESS' ? 'Succeeded' : requestTrace.status === 'FAILED' ? 'Failed' : 'Pending' }}
+                    </dd>
+                  </div>
+                  <div v-if="requestTrace.applied_at" class="col-span-2">
+                    <dt class="text-text-secondary">Applied at</dt>
+                    <dd class="mt-0.5 text-text-primary">{{ new Date(requestTrace.applied_at).toLocaleString() }}</dd>
+                  </div>
+                  <div v-if="requestTrace.error_message" class="col-span-2">
+                    <dt class="text-text-secondary">Execution error</dt>
+                    <dd class="mt-0.5 text-status-critical">{{ requestTrace.error_message }}</dd>
+                  </div>
+                </dl>
+                <details v-if="requestTrace.generated_commands" class="group mt-3 border-t border-border pt-3">
+                  <summary class="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700">
+                    <ChevronDown class="h-3.5 w-3.5 transition-transform group-open:rotate-180" /> Generated commands
+                  </summary>
+                  <pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-surface-sunken p-3 font-mono text-[11px] text-text-primary">{{ requestTrace.generated_commands }}</pre>
+                </details>
+              </template>
+            </section>
+
             <ErrorAlert v-if="ackError" :message="ackError" class="mt-4" />
 
             <BaseButton
-              v-if="change.status === 'FLAGGED' && auth.hasRole('admin', 'operator')"
+              v-if="change.status === 'FLAGGED' && auth.hasRole('admin')"
               class="w-full mt-4"
               title="Mark this change as reviewed"
               :loading="isAcking"

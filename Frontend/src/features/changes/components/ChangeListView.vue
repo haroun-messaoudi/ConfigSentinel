@@ -2,19 +2,22 @@
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { changesApi } from '../api/changes.api'
+import { useAuthStore } from '@/features/auth/stores/auth.store'
+import { getOperatorDeviceIds, listChangesForDevices } from '@/utils/operatorScope'
 import type { ConfigChange, ChangeStatus } from '../types'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
-import { ShieldAlert, CheckCircle2, Info } from 'lucide-vue-next'
+import { ShieldAlert, CheckCircle2, Info, User } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
+const auth = useAuthStore()
 
 type StatusFilter = 'all' | ChangeStatus
 
 function initialFilter(): StatusFilter {
   const q = route.query.status
   if (q === 'FLAGGED' || q === 'INFORMATIONAL' || q === 'ACKNOWLEDGED') return q
-  return 'FLAGGED'
+  return auth.hasRole('operator') ? 'all' : 'FLAGGED'
 }
 
 const activeFilter = ref<StatusFilter>(initialFilter())
@@ -35,7 +38,12 @@ async function loadChanges() {
   loadError.value = null
   try {
     const status = activeFilter.value === 'all' ? undefined : activeFilter.value
-    changes.value = await changesApi.list({ status })
+    if (auth.hasRole('operator')) {
+      const deviceIds = await getOperatorDeviceIds()
+      changes.value = await listChangesForDevices(deviceIds, { status })
+    } else {
+      changes.value = await changesApi.list({ status })
+    }
   } catch {
     loadError.value = 'Could not load config changes. Please try again.'
   } finally {
@@ -73,8 +81,10 @@ function goToDetail(change: ConfigChange) {
 <template>
   <div>
     <div class="mb-6">
-      <h2 class="text-xl font-semibold text-text-primary">Config Changes</h2>
-      <p class="text-sm text-text-secondary mt-1">Detected configuration drift across your devices.</p>
+      <h2 class="text-xl font-semibold text-text-primary">{{ auth.hasRole('operator') ? 'Device Configuration Log' : 'Config Changes' }}</h2>
+      <p class="text-sm text-text-secondary mt-1">
+        {{ auth.hasRole('operator') ? 'Detected configuration changes on devices assigned to you. Changes may come from an action or an out-of-band edit.' : 'Detected configuration drift across your devices.' }}
+      </p>
     </div>
 
     <div class="border-b border-border mb-6">
@@ -83,7 +93,7 @@ function goToDetail(change: ConfigChange) {
           v-for="tab in (['FLAGGED', 'INFORMATIONAL', 'ACKNOWLEDGED', 'all'] as StatusFilter[])"
           :key="tab"
           type="button"
-          class="pb-3 text-sm font-medium border-b-2 -mb-px transition-colors"
+          class="pb-3 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer"
           :class="activeFilter === tab ? 'border-brand-500 text-brand-600' : 'border-transparent text-text-secondary hover:text-text-primary'"
           @click="setFilter(tab)"
         >
@@ -96,7 +106,7 @@ function goToDetail(change: ConfigChange) {
     <div v-if="isLoading" class="text-sm text-text-secondary">Loading changes…</div>
 
     <div v-else-if="changes.length === 0" class="bg-surface-raised border border-border rounded-lg p-8 text-center">
-      <p class="text-sm text-text-secondary">No config changes here.</p>
+      <p class="text-sm text-text-secondary">{{ auth.hasRole('operator') ? 'No detected configuration changes for this filter.' : 'No config changes here.' }}</p>
     </div>
 
     <div v-else class="bg-surface-raised border border-border rounded-lg overflow-hidden shadow-sm">
@@ -106,6 +116,9 @@ function goToDetail(change: ConfigChange) {
             <th class="px-4 py-3">Device</th>
             <th class="px-4 py-3">Severity</th>
             <th class="px-4 py-3">Matched Concepts</th>
+            <th v-if="!auth.hasRole('operator')" class="px-4 py-3">Triggered By</th>
+            <th v-if="!auth.hasRole('operator')" class="px-4 py-3">Reviewed By</th>
+            <th v-if="auth.hasRole('operator')" class="px-4 py-3">Origin</th>
             <th class="px-4 py-3">Detected</th>
             <th class="px-4 py-3">Status</th>
           </tr>
@@ -120,6 +133,24 @@ function goToDetail(change: ConfigChange) {
             </td>
             <td class="px-4 py-3 text-text-secondary">
               {{ change.matched_concept_names.length ? change.matched_concept_names.join(', ') : '—' }}
+            </td>
+            <td v-if="!auth.hasRole('operator')" class="px-4 py-3 text-text-secondary">
+              <div v-if="change.changed_by_username" class="flex items-center gap-1.5 font-medium text-text-primary">
+                <User class="w-3.5 h-3.5 text-brand-500" />
+                <span>{{ change.changed_by_username }}</span>
+              </div>
+              <span v-else class="text-xs text-text-secondary/60 italic">Automatic / out-of-band</span>
+            </td>
+            <td v-if="auth.hasRole('operator')" class="px-4 py-3 text-text-secondary">
+              <span v-if="change.change_request" class="inline-flex items-center rounded bg-status-info-bg px-2 py-1 text-[11px] font-medium text-status-info">Action request</span>
+              <span v-else class="text-xs text-text-secondary">Out-of-band / unknown</span>
+            </td>
+            <td v-if="!auth.hasRole('operator')" class="px-4 py-3 text-text-secondary">
+              <div v-if="change.status === 'ACKNOWLEDGED' && change.acknowledged_by_username" class="flex items-center gap-1.5 font-medium text-text-primary">
+                <User class="w-3.5 h-3.5 text-status-healthy" />
+                <span>{{ change.acknowledged_by_username }}</span>
+              </div>
+              <span v-else class="text-xs text-text-secondary/60 italic">Pending review</span>
             </td>
             <td class="px-4 py-3 text-text-secondary">{{ new Date(change.detected_at).toLocaleString() }}</td>
             <td class="px-4 py-3">

@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/features/auth/stores/auth.store'
 import { alertsApi } from '../api/alerts.api'
+import { getOperatorDeviceIds, listChangesForDevices } from '@/utils/operatorScope'
 import { useNotificationCounts } from '@/composables/useNotificationCounts'
 import type { Alert } from '../types'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
@@ -34,7 +35,15 @@ async function loadAlerts() {
   loadError.value = null
   try {
     const delivered = activeFilter.value === 'all' ? undefined : activeFilter.value === 'delivered'
-    alerts.value = await alertsApi.list(delivered)
+    const allAlerts = await alertsApi.list(delivered)
+    if (auth.hasRole('operator')) {
+      const deviceIds = await getOperatorDeviceIds()
+      const scopedChanges = await listChangesForDevices(deviceIds)
+      const changeIds = new Set(scopedChanges.map((change) => change.id))
+      alerts.value = allAlerts.filter((alert) => changeIds.has(alert.change))
+    } else {
+      alerts.value = allAlerts
+    }
   } catch {
     loadError.value = 'Could not load alerts. Please try again.'
   } finally {

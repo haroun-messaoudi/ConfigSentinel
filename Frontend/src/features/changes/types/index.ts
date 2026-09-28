@@ -11,6 +11,8 @@ export interface ConfigChange {
   severity_name: string | null
   matched_concepts: number[]
   matched_concept_names: string[]
+  change_request: number | null
+  changed_by_username: string | null
   detected_at: string
   status: ChangeStatus
   acknowledged_at: string | null

@@ -37,6 +37,15 @@ _DEVICE_TYPE_LABELS = {
     "cisco_xe": "Cisco IOS-XE",
 }
 
+def _scope_to_operator_devices(queryset, user, relation):
+    role = getattr(user, "role", None)
+    if user.is_superuser or (role is not None and role.name == "Admin"):
+        return queryset
+    if role is not None and role.name == "Operator":
+        return queryset.filter(**{f"{relation}__user": user}).distinct()
+    return queryset
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def device_types(request):
@@ -52,23 +61,29 @@ class DeviceViewSet(viewsets.ModelViewSet):
     Viewers:
         - Can read devices, snapshots, and changes.
 
-    Operators/Admins:
-        - Can create/update/delete devices.
+    Operators:
         - Can trigger checks.
-        - Can pause/resume devices.
+
+    Admins:
+        - Can create, update, delete, pause, and resume devices.
     """
     queryset = Device.objects.all()
     serializer_class = DeviceSerializer
 
     def get_permissions(self):
-        if self.action in ("create", "destroy"):
+        if self.action in ("create", "update", "partial_update", "destroy", "pause", "resume"):
             return [IsAdmin()]
         return [ReadOnlyOrOperatorAbove()]
+
+    def get_queryset(self):
+        return _scope_to_operator_devices(
+            Device.objects.all(), self.request.user, "allowed_permissions"
+        )
 
     @action(detail=True, methods=["get"])
     def snapshots(self, request, pk=None):
         snapshots = Snapshot.objects.filter(
-            device_id=pk
+            device=self.get_object()
         ).order_by("-taken_at")
 
         return Response(
@@ -78,7 +93,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"])
     def changes(self, request, pk=None):
         changes = ConfigChange.objects.filter(
-            device_id=pk
+            device=self.get_object()
         ).order_by("-detected_at")
 
         return Response(
@@ -91,7 +106,8 @@ class DeviceViewSet(viewsets.ModelViewSet):
         Only enqueues the job — the actual SSH/Netmiko work happens
         in the Celery worker, not inside this request.
         """
-        pull_config_task.delay(pk)
+        device = self.get_object()
+        pull_config_task.delay(device.pk)
 
         return Response(
             {"status": "queued"},
@@ -138,6 +154,7 @@ class SnapshotViewSet(
 
     def get_queryset(self):
         qs = Snapshot.objects.all().order_by("-taken_at")
+        qs = _scope_to_operator_devices(qs, self.request.user, "device__allowed_permissions")
 
         device_id = self.request.query_params.get("device")
 
@@ -163,14 +180,30 @@ class ConfigChangeViewSet(
     viewsets.GenericViewSet,
 ):
     """
-    Read-only for the change log itself,
-    plus the acknowledge action.
+    Read-only for the change log itself (Viewer+). Acknowledging a change
+    is Admin-only — operators can act on devices, but the final call on
+    whether a detected change is reviewed/closed belongs to an admin.
     """
     serializer_class = ConfigChangeSerializer
-    permission_classes = [ReadOnlyOrOperatorAbove]
+
+    def get_permissions(self):
+        if self.action == "acknowledge":
+            return [IsAdmin()]
+        return [ReadOnlyOrOperatorAbove()]
 
     def get_queryset(self):
-        qs = ConfigChange.objects.all().order_by("-detected_at")
+        qs = (
+            ConfigChange.objects.all()
+            .select_related(
+                "device",
+                "severity_class",
+                "acknowledged_by",
+                "change_request__requested_by",  # Prefetches the ChangeRequest and the user who requested it
+            )
+            .prefetch_related("matched_concepts")
+            .order_by("-detected_at")
+        )
+        qs = _scope_to_operator_devices(qs, self.request.user, "device__allowed_permissions")
 
         device_id = self.request.query_params.get("device")
 
@@ -180,7 +213,10 @@ class ConfigChangeViewSet(
         severity = self.request.query_params.get("severity")
 
         if severity:
-            qs = qs.filter(severity=severity)
+            if severity.isdigit():
+                qs = qs.filter(severity_class_id=severity)
+            else:
+                qs = qs.filter(severity_class__name__iexact=severity)
 
         status_param = self.request.query_params.get("status")
 
@@ -196,7 +232,7 @@ class ConfigChangeViewSet(
         change.acknowledged_at = timezone.now()
         change.acknowledged_by = request.user
         change.save(update_fields=["status", "acknowledged_at", "acknowledged_by"])
-        return Response(ConfigChangeSerializer(change).data)
+        return Response(ConfigChangeSerializer(change, context={"request": request}).data)
 
 
 class AlertViewSet(
@@ -212,6 +248,7 @@ class AlertViewSet(
 
     def get_queryset(self):
         qs = Alert.objects.all().order_by("-created_at")
+        qs = _scope_to_operator_devices(qs, self.request.user, "change__device__allowed_permissions")
 
         delivered = self.request.query_params.get("delivered")
 
@@ -262,7 +299,7 @@ class TrackedConceptViewSet(viewsets.ModelViewSet):
 
 class DetectionProfileViewSet(viewsets.ModelViewSet):
     """
-    Anyone with a role (Viewer+) can list/view detection profiles so they can 
+    Anyone with a role (Viewer+) can list/view detection profiles so they can
     be selected when updating devices. Only Admins can build, edit, or delete profiles.
     """
     queryset = DetectionProfile.objects.all()

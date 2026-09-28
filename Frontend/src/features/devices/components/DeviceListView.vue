@@ -3,6 +3,10 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/features/auth/stores/auth.store'
 import { devicesApi } from '../api/devices.api'
+import { actionsApi } from '@/features/actions/api/actions.api'
+import type { ChangeRequestItem } from '@/features/actions/types'
+import { getOperatorDeviceIds, listChangesForDevices } from '@/utils/operatorScope'
+import type { ConfigChange } from '@/features/changes/types'
 import { useCheckNow } from '../composables/useCheckNow'
 import type { Device } from '../types'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
@@ -15,6 +19,8 @@ const router = useRouter()
 const { checkingIds, checkErrors, checkNow } = useCheckNow()
 
 const devices = ref<Device[]>([])
+const operatorChanges = ref<ConfigChange[]>([])
+const operatorRequests = ref<ChangeRequestItem[]>([])
 const isLoading = ref(true)
 const loadError = ref<string | null>(null)
 const showCreateModal = ref(false)
@@ -99,12 +105,32 @@ async function loadDevices() {
   loadError.value = null
 
   try {
-    devices.value = await devicesApi.list()
+    const operatorDeviceIds = auth.hasRole('operator') ? await getOperatorDeviceIds() : null
+    const allDevices = await devicesApi.list()
+    devices.value = operatorDeviceIds
+      ? allDevices.filter((device) => operatorDeviceIds.has(device.id))
+      : allDevices
+    if (operatorDeviceIds) {
+      const [changes, requests] = await Promise.all([
+        listChangesForDevices(operatorDeviceIds),
+        actionsApi.listChangeRequests(),
+      ])
+      operatorChanges.value = changes
+      operatorRequests.value = requests.filter((request) => operatorDeviceIds.has(request.device))
+    }
   } catch {
     loadError.value = 'Could not load devices. Please try again.'
   } finally {
     isLoading.value = false
   }
+}
+
+function successfulChangesByMe(deviceId: number) {
+  return operatorRequests.value.filter((request) => request.device === deviceId && request.status === 'SUCCESS').length
+}
+
+function detectedChanges(deviceId: number) {
+  return operatorChanges.value.filter((change) => change.device === deviceId).length
 }
 
 onMounted(loadDevices)
@@ -188,7 +214,7 @@ function onDeviceSaved(device: Device) {
         </h2>
 
         <p class="text-sm text-text-secondary mt-1">
-          Registry of monitored network devices.
+          {{ auth.hasRole('operator') ? 'Configuration health and your execution history for assigned devices.' : 'Registry of monitored network devices.' }}
         </p>
       </div>
 
@@ -219,7 +245,7 @@ function onDeviceSaved(device: Device) {
       class="bg-surface-raised border border-border rounded-lg p-8 text-center"
     >
       <p class="text-sm text-text-secondary">
-        No devices registered yet.
+        {{ auth.hasRole('operator') ? 'No devices are assigned to you.' : 'No devices registered yet.' }}
       </p>
     </div>
 
@@ -258,9 +284,9 @@ function onDeviceSaved(device: Device) {
       <!-- Table -->
       <div
         v-else
-        class="bg-surface-raised border border-border rounded-lg overflow-hidden shadow-sm"
+        class="overflow-x-auto rounded-lg border border-border bg-surface-raised shadow-sm"
       >
-        <table class="w-full text-sm">
+        <table class="w-full min-w-[760px] text-sm">
           <thead
             class="bg-surface-sunken text-left text-xs font-medium uppercase tracking-wide text-text-secondary border-b border-border"
           >
@@ -269,7 +295,9 @@ function onDeviceSaved(device: Device) {
               <th class="px-4 py-3">Management IP</th>
               <th class="px-4 py-3">Type</th>
               <th class="px-4 py-3">Status</th>
-              <th class="px-4 py-3">Last Polled</th>
+              <th class="px-4 py-3">Last Successful Config Capture</th>
+              <th v-if="auth.hasRole('operator')" class="px-4 py-3 text-right">Detected Changes</th>
+              <th v-if="auth.hasRole('operator')" class="px-4 py-3 text-right">Successful by You</th>
               <th
                 v-if="auth.hasRole('admin', 'operator')"
                 class="px-4 py-3 text-right"
@@ -315,6 +343,13 @@ function onDeviceSaved(device: Device) {
                 }}
               </td>
 
+              <td v-if="auth.hasRole('operator')" class="px-4 py-3 text-right tabular-nums text-text-secondary">
+                {{ detectedChanges(device.id) }}
+              </td>
+              <td v-if="auth.hasRole('operator')" class="px-4 py-3 text-right tabular-nums font-semibold text-status-healthy">
+                {{ successfulChangesByMe(device.id) }}
+              </td>
+
               <td
                 v-if="auth.hasRole('admin', 'operator')"
                 class="px-4 py-3"
@@ -347,6 +382,7 @@ function onDeviceSaved(device: Device) {
                   </button>
 
                   <button
+                    v-if="auth.hasRole('admin')"
                     type="button"
                     class="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-text-secondary hover:bg-surface-sunken disabled:opacity-50"
                     :disabled="pendingActions.has(device.id)"

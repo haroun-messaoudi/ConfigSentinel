@@ -30,9 +30,13 @@ import {
 
 import { devicesApi } from '@/features/devices/api/devices.api'
 import { changesApi } from '@/features/changes/api/changes.api'
+import { useAuthStore } from '@/features/auth/stores/auth.store'
+import { getOperatorDeviceIds, listChangesForDevices } from '@/utils/operatorScope'
 import { alertsApi } from '@/features/alerts/api/alerts.api'
 import { useDarkMode } from '@/composables/useDarkMode'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
+import OperatorDashboardView from '@/features/actions/components/OperatorDashboardView.vue'
+import AdminChangeActivityPanel from '@/features/actions/components/AdminChangeActivityPanel.vue'
 import type { Device } from '@/features/devices/types'
 import type { ConfigChange } from '@/features/changes/types'
 import type { Alert } from '@/features/alerts/types'
@@ -40,6 +44,7 @@ import type { Alert } from '@/features/alerts/types'
 ChartJS.register(Title, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale, ArcElement, BarElement, Filler)
 
 const { isDark } = useDarkMode()
+const auth = useAuthStore()
 
 const loading = ref(true)
 const loadError = ref<string | null>(null)
@@ -48,17 +53,22 @@ const changes = ref<ConfigChange[]>([])
 const alerts = ref<Alert[]>([])
 
 async function fetchData() {
+  if (auth.hasRole('operator')) return
   loading.value = true
   loadError.value = null
   try {
-    const [devicesRes, changesRes, alertsRes] = await Promise.all([
-      devicesApi.list(),
-      changesApi.list(),
-      alertsApi.list(),
-    ])
-    devices.value = devicesRes
-    changes.value = changesRes
-    alerts.value = alertsRes
+    const devicesRes = await devicesApi.list()
+    if (auth.hasRole('operator')) {
+      const deviceIds = await getOperatorDeviceIds()
+      devices.value = devicesRes.filter((device) => deviceIds.has(device.id))
+      changes.value = await listChangesForDevices(deviceIds)
+      alerts.value = []
+    } else {
+      const [changesRes, alertsRes] = await Promise.all([changesApi.list(), alertsApi.list()])
+      devices.value = devicesRes
+      changes.value = changesRes
+      alerts.value = alertsRes
+    }
   } catch {
     loadError.value = 'Could not load dashboard data. Please try again.'
   } finally {
@@ -100,7 +110,9 @@ const devicesNeedingAttention = computed(() =>
     .slice(0, 5),
 )
 
-const recentFlaggedChanges = computed(() => changes.value.filter((c) => c.status === 'FLAGGED').slice(0, 5))
+const recentFlaggedChanges = computed(() =>
+  (auth.hasRole('operator') ? changes.value : changes.value.filter((c) => c.status === 'FLAGGED')).slice(0, 5),
+)
 
 // --- Top devices by drift volume: which devices generate the most
 // config changes (flagged + acknowledged — informational excluded since
@@ -248,12 +260,15 @@ const topDriftChartOptions = computed(() => ({
 </script>
 
 <template>
-  <div class="space-y-6">
+  <OperatorDashboardView v-if="auth.hasRole('operator')" />
+  <div v-else class="space-y-6">
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
         <h1 class="text-2xl font-bold text-text-primary">Dashboard</h1>
-        <p class="text-sm text-text-secondary mt-0.5">Real-time infrastructure drift & security posture</p>
+        <p class="text-sm text-text-secondary mt-0.5">
+          {{ auth.hasRole('operator') ? 'Your assigned devices and their recent changes' : 'Real-time infrastructure drift & security posture' }}
+        </p>
       </div>
       <button
         @click="fetchData"
@@ -266,8 +281,10 @@ const topDriftChartOptions = computed(() => ({
 
     <ErrorAlert v-if="loadError" :message="loadError" />
 
+    <AdminChangeActivityPanel v-if="auth.hasRole('admin')" />
+
     <!-- KPI Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" :class="auth.hasRole('operator') ? 'lg:grid-cols-2' : 'lg:grid-cols-4'">
       <RouterLink
         to="/devices"
         class="bg-surface-raised p-5 rounded-xl border border-border shadow-sm flex items-center justify-between hover:border-brand-500/50 hover:shadow-md transition-all group"
@@ -297,6 +314,7 @@ const topDriftChartOptions = computed(() => ({
       </RouterLink>
 
       <RouterLink
+        v-if="!auth.hasRole('operator')"
         to="/alerts?filter=undelivered"
         class="bg-surface-raised p-5 rounded-xl border border-border shadow-sm flex items-center justify-between hover:border-status-critical/50 hover:shadow-md transition-all group"
       >
@@ -311,6 +329,7 @@ const topDriftChartOptions = computed(() => ({
       </RouterLink>
 
       <RouterLink
+        v-if="!auth.hasRole('operator')"
         to="/changes?status=ACKNOWLEDGED"
         class="bg-surface-raised p-5 rounded-xl border border-border shadow-sm hover:border-status-healthy/50 hover:shadow-md transition-all group"
       >
@@ -369,11 +388,15 @@ const topDriftChartOptions = computed(() => ({
       <div class="lg:col-span-2 bg-surface-raised rounded-xl border border-border shadow-sm p-5">
         <div class="flex items-center justify-between mb-4">
           <div>
-            <h3 class="text-sm font-semibold text-text-primary">Action Required: Flagged Changes</h3>
-            <p class="text-xs text-text-secondary mt-0.5">Unacknowledged configuration drift requiring technical audit</p>
+            <h3 class="text-sm font-semibold text-text-primary">
+              {{ auth.hasRole('operator') ? 'Recent Changes on Your Devices' : 'Action Required: Flagged Changes' }}
+            </h3>
+            <p class="text-xs text-text-secondary mt-0.5">
+              {{ auth.hasRole('operator') ? 'Configuration changes on devices assigned to you' : 'Unacknowledged configuration drift requiring technical audit' }}
+            </p>
           </div>
           <RouterLink to="/changes?status=FLAGGED" class="text-xs font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-1 shrink-0">
-            View all <ArrowRight class="w-3.5 h-3.5" />
+              {{ auth.hasRole('operator') ? 'View changes' : 'View all' }} <ArrowRight class="w-3.5 h-3.5" />
           </RouterLink>
         </div>
 
@@ -403,7 +426,7 @@ const topDriftChartOptions = computed(() => ({
               :to="`/changes/${change.id}`"
               class="shrink-0 px-3 py-1.5 text-xs font-semibold text-text-primary bg-surface-sunken hover:bg-border border border-border rounded-lg transition-colors"
             >
-              Review
+              {{ auth.hasRole('operator') ? 'Inspect' : 'Review' }}
             </RouterLink>
           </div>
         </div>
