@@ -54,8 +54,8 @@ Validated against an FRRouting lab (Containerlab) and a real Cisco Catalyst 8000
     <td align="center"><sub>Alerts</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/run-action-wizard.png" alt="Run action wizard"/></td>
-    <td><img src="docs/screenshots/action-governance.png" alt="Action governance"/></td>
+    <td><img src="docs/screenshots/run_action.jpg" alt="Run action wizard"/></td>
+    <td><img src="docs/screenshots/action_governance.jpg" alt="Action governance"/></td>
   </tr>
   <tr>
     <td align="center"><sub>Running a pre-approved action (CLI preview)</sub></td>
